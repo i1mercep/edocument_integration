@@ -1,3 +1,6 @@
+# Copyright (c) 2025, Prilk Consulting BV and contributors
+# For license information, please see license.txt
+
 # API endpoints for PEPPOL e-document functionality
 
 import frappe
