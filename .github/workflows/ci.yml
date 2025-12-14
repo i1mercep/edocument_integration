@@ -36,7 +36,7 @@ jobs:
         options: --health-cmd="mariadb-admin ping" --health-interval=5s --health-timeout=2s --health-retries=3
 
     steps:
-      - name: Clone edocument_integration
+      - name: Clone
         uses: actions/checkout@v3
 
       - name: Find tests
@@ -91,8 +91,7 @@ jobs:
       - name: Install
         working-directory: /home/runner/frappe-bench
         run: |
-          # Copy edocument_integration app
-          cp -r $GITHUB_WORKSPACE apps/edocument_integration
+          bench get-app edocument_integration $GITHUB_WORKSPACE
           bench setup requirements --dev
           bench new-site --db-root-password root --admin-password admin test_site
           bench --site test_site install-app edocument_integration
