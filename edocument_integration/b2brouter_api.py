@@ -8,11 +8,12 @@ This module provides a comprehensive client for interacting with B2B Router's
 REST API for transmitting and managing PEPPOL invoices.
 """
 
-import requests
 import json
-import frappe
-from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
+from typing import Any
+
+import frappe
+import requests
 from frappe import _
 
 
@@ -28,16 +29,15 @@ class B2BRouterAPIClient:
 			base_url: Base URL for B2B Router API
 		"""
 		self.api_key = api_key
-		self.base_url = base_url.rstrip('/')
+		self.base_url = base_url.rstrip("/")
 		self.session = requests.Session()
-		self.session.headers.update({
-			'X-B2B-API-Key': api_key,
-			'Accept': 'application/json',
-			'User-Agent': 'Frappe-EDocument/1.0'
-		})
+		self.session.headers.update(
+			{"X-B2B-API-Key": api_key, "Accept": "application/json", "User-Agent": "Frappe-EDocument/1.0"}
+		)
 
-	def _make_request(self, method: str, endpoint: str, data=None, json_data=None,
-					 files=None, timeout: int = 30) -> Dict[str, Any]:
+	def _make_request(
+		self, method: str, endpoint: str, data=None, json_data=None, files=None, timeout: int = 30
+	) -> dict[str, Any]:
 		"""
 		Make HTTP request to B2B Router API.
 
@@ -60,16 +60,11 @@ class B2BRouterAPIClient:
 		try:
 			headers = {}
 			if json_data and not files:
-				headers['Content-Type'] = 'application/json'
+				headers["Content-Type"] = "application/json"
 				data = json.dumps(json_data)
 
 			response = self.session.request(
-				method=method.upper(),
-				url=url,
-				data=data,
-				headers=headers,
-				files=files,
-				timeout=timeout
+				method=method.upper(), url=url, data=data, headers=headers, files=files, timeout=timeout
 			)
 
 			response.raise_for_status()
@@ -81,7 +76,7 @@ class B2BRouterAPIClient:
 				return {"success": True}
 
 		except requests.exceptions.RequestException as e:
-			error_msg = f"B2B Router API request failed: {str(e)}"
+			error_msg = f"B2B Router API request failed: {e!s}"
 			frappe.log_error(error_msg, "B2B Router API Error")
 			raise Exception(error_msg)
 
@@ -89,7 +84,7 @@ class B2BRouterAPIClient:
 	# INVOICE TRANSMISSION METHODS
 	# ============================================================================
 
-	def create_invoice(self, xml_content: str, invoice_doc=None, integration_settings=None) -> Dict[str, Any]:
+	def create_invoice(self, xml_content: str, invoice_doc=None, integration_settings=None) -> dict[str, Any]:
 		"""
 		Create/upload invoice to B2B Router.
 
@@ -102,80 +97,69 @@ class B2BRouterAPIClient:
 			Creation result with invoice ID
 		"""
 		# Use account_id from integration settings
-		if integration_settings and integration_settings.get('account_id'):
-			account_id = integration_settings.get('account_id')
-		
+		if integration_settings and integration_settings.get("account_id"):
+			account_id = integration_settings.get("account_id")
+
 		# Use the Import endpoint for XML invoices
 		create_url = f"{self.base_url}/projects/{account_id}/invoices/import.json"
-		create_headers = {
-			'X-B2B-API-Key': self.api_key,
-			'Content-Type': 'application/octet-stream'
-		}
-		
+		create_headers = {"X-B2B-API-Key": self.api_key, "Content-Type": "application/octet-stream"}
+
 		# Encode XML as base64 for import
 		import base64
-		
+
 		# Handle both string and bytes input
 		if isinstance(xml_content, bytes):
 			xml_bytes = xml_content
 		else:
-			xml_bytes = xml_content.encode('utf-8')
-			
-		xml_base64 = base64.b64encode(xml_bytes).decode('utf-8')
+			xml_bytes = xml_content.encode("utf-8")
+
+		xml_base64 = base64.b64encode(xml_bytes).decode("utf-8")
 		xml_data = f"data:text/xml;name=Invoice.xml;base64,{xml_base64}"
 
 		try:
-			response = self.session.post(
-				create_url,
-				data=xml_data,
-				headers=create_headers,
-				timeout=60
-			)
-			
+			response = self.session.post(create_url, data=xml_data, headers=create_headers, timeout=60)
+
 			# Handle 422 errors with detailed error messages
 			if response.status_code == 422:
 				try:
 					error_data = response.json()
-					error_messages = error_data.get('errors', [])
+					error_messages = error_data.get("errors", [])
 					error_msg = f"B2B Router validation failed: {'; '.join(error_messages)}"
 					frappe.log_error(error_msg, "B2B Router Validation Error")
 					raise Exception(error_msg)
-				except:
+				except Exception:
 					raise Exception(f"B2B Router validation failed (422): {response.text}")
-			
+
 			response.raise_for_status()
 
 			# Extract invoice ID from response
 			invoice_id = "unknown"
 			try:
-				if response.headers.get('content-type', '').startswith('application/xml'):
+				if response.headers.get("content-type", "").startswith("application/xml"):
 					# Parse XML response to get invoice ID
 					import xml.etree.ElementTree as ET
+
 					root = ET.fromstring(response.text)
-					invoice_id = root.find('.//id').text if root.find('.//id') is not None else "unknown"
+					invoice_id = root.find(".//id").text if root.find(".//id") is not None else "unknown"
 				else:
 					# Try JSON response - check for nested invoice object
 					result = response.json()
-					if 'invoice' in result and 'id' in result['invoice']:
-						invoice_id = result['invoice']['id']
+					if "invoice" in result and "id" in result["invoice"]:
+						invoice_id = result["invoice"]["id"]
 					else:
-						invoice_id = result.get('id', 'unknown')
+						invoice_id = result.get("id", "unknown")
 			except Exception:
 				# If parsing fails, use unknown
 				pass
 
-			return {
-				'status': 'success',
-				'invoice_id': invoice_id,
-				'response': response.text
-			}
+			return {"status": "success", "invoice_id": invoice_id, "response": response.text}
 
 		except requests.exceptions.RequestException as e:
-			error_msg = f"B2B Router invoice creation failed: {str(e)}"
+			error_msg = f"B2B Router invoice creation failed: {e!s}"
 			frappe.log_error(error_msg, "B2B Router Creation Error")
 			raise Exception(error_msg)
 
-	def send_invoice(self, invoice_id: str) -> Dict[str, Any]:
+	def send_invoice(self, invoice_id: str) -> dict[str, Any]:
 		"""
 		Send created invoice via B2B Router.
 
@@ -186,36 +170,35 @@ class B2BRouterAPIClient:
 			Send result with transmission information
 		"""
 		send_url = f"{self.base_url}/invoices/send_invoice/{invoice_id}"
-		headers = {
-			'accept': 'application/xml',
-			'X-B2B-API-Key': self.api_key
-		}
+		headers = {"accept": "application/xml", "X-B2B-API-Key": self.api_key}
 
 		try:
-			response = self.session.post(
-				send_url,
-				headers=headers,
-				timeout=60
-			)
+			response = self.session.post(send_url, headers=headers, timeout=60)
 			response.raise_for_status()
 
 			# Handle response (XML or JSON)
-			if response.headers.get('content-type', '').startswith('application/xml'):
-				result = {'status': 'success', 'response': response.text}
+			if response.headers.get("content-type", "").startswith("application/xml"):
+				result = {"status": "success", "response": response.text}
 			else:
 				try:
 					result = response.json()
-				except:
-					result = {'status': 'success', 'response': response.text}
+				except Exception:
+					result = {"status": "success", "response": response.text}
 
 			return result
 
 		except requests.exceptions.RequestException as e:
-			error_msg = f"B2B Router invoice send failed: {str(e)}"
+			error_msg = f"B2B Router invoice send failed: {e!s}"
 			frappe.log_error(error_msg, "B2B Router Send Error")
 			raise Exception(error_msg)
 
-	def transmit_invoice(self, xml_content: str, invoice_doc=None, integration_settings=None, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+	def transmit_invoice(
+		self,
+		xml_content: str,
+		invoice_doc=None,
+		integration_settings=None,
+		metadata: dict[str, Any] | None = None,
+	) -> dict[str, Any]:
 		"""
 		Transmit PEPPOL invoice XML to B2B Router using create + send workflow.
 
@@ -231,24 +214,24 @@ class B2BRouterAPIClient:
 		try:
 			# Step 1: Create/upload the invoice
 			create_result = self.create_invoice(xml_content, invoice_doc, integration_settings)
-			
-			if create_result['status'] != 'success':
+
+			if create_result["status"] != "success":
 				raise Exception(f"Failed to create invoice: {create_result}")
 
-			invoice_id = create_result.get('invoice_id', 'unknown')
-			
+			invoice_id = create_result.get("invoice_id", "unknown")
+
 			# Step 2: Send the created invoice
 			send_result = self.send_invoice(invoice_id)
-			
-			if send_result['status'] != 'success':
+
+			if send_result["status"] != "success":
 				raise Exception(f"Failed to send invoice: {send_result}")
 
 			# Combine results
 			result = {
-				'status': 'success',
-				'invoice_id': invoice_id,
-				'create_result': create_result,
-				'send_result': send_result
+				"status": "success",
+				"invoice_id": invoice_id,
+				"create_result": create_result,
+				"send_result": send_result,
 			}
 
 			# Log successful transmission
@@ -257,11 +240,11 @@ class B2BRouterAPIClient:
 			return result
 
 		except Exception as e:
-			error_msg = f"B2B Router invoice transmission failed: {str(e)}"
+			error_msg = f"B2B Router invoice transmission failed: {e!s}"
 			frappe.log_error(error_msg, "B2B Router Transmission Error")
 			raise Exception(error_msg)
 
-	def get_invoice_status(self, transmission_id: str) -> Dict[str, Any]:
+	def get_invoice_status(self, transmission_id: str) -> dict[str, Any]:
 		"""
 		Get status of transmitted invoice.
 
@@ -271,9 +254,9 @@ class B2BRouterAPIClient:
 		Returns:
 			Invoice status information
 		"""
-		return self._make_request('GET', f"/invoices/{transmission_id}")
+		return self._make_request("GET", f"/invoices/{transmission_id}")
 
-	def get_invoice_history(self, transmission_id: str) -> Dict[str, Any]:
+	def get_invoice_history(self, transmission_id: str) -> dict[str, Any]:
 		"""
 		Get detailed history of invoice transmission.
 
@@ -283,9 +266,9 @@ class B2BRouterAPIClient:
 		Returns:
 			Invoice transmission history
 		"""
-		return self._make_request('GET', f"/invoices/{transmission_id}/history")
+		return self._make_request("GET", f"/invoices/{transmission_id}/history")
 
-	def cancel_invoice(self, transmission_id: str, reason: str = "") -> Dict[str, Any]:
+	def cancel_invoice(self, transmission_id: str, reason: str = "") -> dict[str, Any]:
 		"""
 		Cancel a pending invoice transmission.
 
@@ -297,14 +280,15 @@ class B2BRouterAPIClient:
 			Cancellation result
 		"""
 		data = {"reason": reason} if reason else {}
-		return self._make_request('DELETE', f"/invoices/{transmission_id}", json_data=data)
+		return self._make_request("DELETE", f"/invoices/{transmission_id}", json_data=data)
 
 	# ============================================================================
 	# BULK OPERATIONS
 	# ============================================================================
 
-	def transmit_invoices_bulk(self, xml_files: List[str],
-							  metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+	def transmit_invoices_bulk(
+		self, xml_files: list[str], metadata: dict[str, Any] | None = None
+	) -> dict[str, Any]:
 		"""
 		Transmit multiple invoices in bulk.
 
@@ -317,17 +301,17 @@ class B2BRouterAPIClient:
 		"""
 		files = []
 		for i, xml in enumerate(xml_files):
-			if isinstance(xml, str) and xml.startswith('<?xml'):
+			if isinstance(xml, str) and xml.startswith("<?xml"):
 				# XML content as string
-				files.append(('invoices', (f'invoice_{i}.xml', xml, 'application/xml')))
+				files.append(("invoices", (f"invoice_{i}.xml", xml, "application/xml")))
 			else:
 				# File path
-				with open(xml, 'rb') as f:
-					files.append(('invoices', (f.name, f.read(), 'application/xml')))
+				with open(xml, "rb") as f:
+					files.append(("invoices", (f.name, f.read(), "application/xml")))
 
-		return self._make_request('POST', "/invoices/bulk", files=files)
+		return self._make_request("POST", "/invoices/bulk", files=files)
 
-	def get_bulk_status(self, bulk_id: str) -> Dict[str, Any]:
+	def get_bulk_status(self, bulk_id: str) -> dict[str, Any]:
 		"""
 		Get status of bulk transmission.
 
@@ -337,22 +321,22 @@ class B2BRouterAPIClient:
 		Returns:
 			Bulk transmission status
 		"""
-		return self._make_request('GET', f"/bulk/{bulk_id}")
+		return self._make_request("GET", f"/bulk/{bulk_id}")
 
 	# ============================================================================
 	# ACCOUNT MANAGEMENT
 	# ============================================================================
 
-	def get_account_info(self) -> Dict[str, Any]:
+	def get_account_info(self) -> dict[str, Any]:
 		"""
 		Get account information and settings.
 
 		Returns:
 			Account details including limits and settings
 		"""
-		return self._make_request('GET', "/account")
+		return self._make_request("GET", "/account")
 
-	def update_account_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
+	def update_account_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
 		"""
 		Update account settings.
 
@@ -362,13 +346,13 @@ class B2BRouterAPIClient:
 		Returns:
 			Updated account settings
 		"""
-		return self._make_request('PUT', "/account", json_data=settings)
+		return self._make_request("PUT", "/account", json_data=settings)
 
 	# ============================================================================
 	# CONTACTS AND PARTNERS
 	# ============================================================================
 
-	def get_contacts(self, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+	def get_contacts(self, filters: dict[str, Any] | None = None) -> dict[str, Any]:
 		"""
 		Get list of trading partners/contacts.
 
@@ -379,9 +363,9 @@ class B2BRouterAPIClient:
 			List of contacts
 		"""
 		params = filters or {}
-		return self._make_request('GET', "/contacts", json_data=params)
+		return self._make_request("GET", "/contacts", json_data=params)
 
-	def create_contact(self, contact_data: Dict[str, Any]) -> Dict[str, Any]:
+	def create_contact(self, contact_data: dict[str, Any]) -> dict[str, Any]:
 		"""
 		Create a new trading partner contact.
 
@@ -391,9 +375,9 @@ class B2BRouterAPIClient:
 		Returns:
 			Created contact details
 		"""
-		return self._make_request('POST', "/contacts", json_data=contact_data)
+		return self._make_request("POST", "/contacts", json_data=contact_data)
 
-	def update_contact(self, contact_id: str, contact_data: Dict[str, Any]) -> Dict[str, Any]:
+	def update_contact(self, contact_id: str, contact_data: dict[str, Any]) -> dict[str, Any]:
 		"""
 		Update trading partner contact.
 
@@ -404,14 +388,15 @@ class B2BRouterAPIClient:
 		Returns:
 			Updated contact details
 		"""
-		return self._make_request('PUT', f"/contacts/{contact_id}", json_data=contact_data)
+		return self._make_request("PUT", f"/contacts/{contact_id}", json_data=contact_data)
 
 	# ============================================================================
 	# REPORTING AND ANALYTICS
 	# ============================================================================
 
-	def get_transmission_report(self, date_from: str, date_to: str,
-							   filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+	def get_transmission_report(
+		self, date_from: str, date_to: str, filters: dict[str, Any] | None = None
+	) -> dict[str, Any]:
 		"""
 		Get transmission report for date range.
 
@@ -423,17 +408,15 @@ class B2BRouterAPIClient:
 		Returns:
 			Transmission report data
 		"""
-		params = {
-			"date_from": date_from,
-			"date_to": date_to
-		}
+		params = {"date_from": date_from, "date_to": date_to}
 		if filters:
 			params.update(filters)
 
-		return self._make_request('GET', "/reports/transmissions", json_data=params)
+		return self._make_request("GET", "/reports/transmissions", json_data=params)
 
-	def get_invoice_list(self, page: int = 1, limit: int = 50,
-						filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+	def get_invoice_list(
+		self, page: int = 1, limit: int = 50, filters: dict[str, Any] | None = None
+	) -> dict[str, Any]:
 		"""
 		Get paginated list of transmitted invoices.
 
@@ -445,42 +428,39 @@ class B2BRouterAPIClient:
 		Returns:
 			Paginated invoice list
 		"""
-		params = {
-			"page": page,
-			"limit": limit
-		}
+		params = {"page": page, "limit": limit}
 		if filters:
 			params.update(filters)
 
-		return self._make_request('GET', "/invoices", json_data=params)
+		return self._make_request("GET", "/invoices", json_data=params)
 
 	# ============================================================================
 	# SYSTEM STATUS AND HEALTH
 	# ============================================================================
 
-	def get_system_status(self) -> Dict[str, Any]:
+	def get_system_status(self) -> dict[str, Any]:
 		"""
 		Get B2B Router system status and health information.
 
 		Returns:
 			System status information
 		"""
-		return self._make_request('GET', "/status")
+		return self._make_request("GET", "/status")
 
-	def get_rate_limits(self) -> Dict[str, Any]:
+	def get_rate_limits(self) -> dict[str, Any]:
 		"""
 		Get current API rate limits and usage.
 
 		Returns:
 			Rate limit information
 		"""
-		return self._make_request('GET', "/rate-limits")
+		return self._make_request("GET", "/rate-limits")
 
 	# ============================================================================
 	# WEBHOOK MANAGEMENT
 	# ============================================================================
 
-	def register_webhook(self, webhook_data: Dict[str, Any]) -> Dict[str, Any]:
+	def register_webhook(self, webhook_data: dict[str, Any]) -> dict[str, Any]:
 		"""
 		Register a webhook for transmission status updates.
 
@@ -490,18 +470,18 @@ class B2BRouterAPIClient:
 		Returns:
 			Webhook registration result
 		"""
-		return self._make_request('POST', "/webhooks", json_data=webhook_data)
+		return self._make_request("POST", "/webhooks", json_data=webhook_data)
 
-	def get_webhooks(self) -> Dict[str, Any]:
+	def get_webhooks(self) -> dict[str, Any]:
 		"""
 		Get list of registered webhooks.
 
 		Returns:
 			List of webhooks
 		"""
-		return self._make_request('GET', "/webhooks")
+		return self._make_request("GET", "/webhooks")
 
-	def delete_webhook(self, webhook_id: str) -> Dict[str, Any]:
+	def delete_webhook(self, webhook_id: str) -> dict[str, Any]:
 		"""
 		Delete a webhook.
 
@@ -511,10 +491,10 @@ class B2BRouterAPIClient:
 		Returns:
 			Deletion result
 		"""
-		return self._make_request('DELETE', f"/webhooks/{webhook_id}")
+		return self._make_request("DELETE", f"/webhooks/{webhook_id}")
 
 
-def get_default_transmission_options() -> Dict[str, Any]:
+def get_default_transmission_options() -> dict[str, Any]:
 	"""
 	Get default transmission options from site config.
 
@@ -524,22 +504,21 @@ def get_default_transmission_options() -> Dict[str, Any]:
 	options = {}
 
 	# Get priority from site config (default: normal)
-	priority = frappe.conf.get('b2b_router_default_priority', 'normal')
-	if priority and priority.lower() != 'normal':
-		options['priority'] = priority
+	priority = frappe.conf.get("b2b_router_default_priority", "normal")
+	if priority and priority.lower() != "normal":
+		options["priority"] = priority
 
 	# Get test mode from site config (default: False)
-	test_mode = frappe.conf.get('b2b_router_test_mode', False)
+	test_mode = frappe.conf.get("b2b_router_test_mode", False)
 	if test_mode:
-		options['test_mode'] = True
+		options["test_mode"] = True
 
 	# Get timeout from site config (default: 60 seconds)
-	timeout = frappe.conf.get('b2b_router_timeout', 60)
+	timeout = frappe.conf.get("b2b_router_timeout", 60)
 	if timeout != 60:
-		options['timeout'] = timeout
+		options["timeout"] = timeout
 
 	return options
-
 
 
 def get_b2b_router_client() -> B2BRouterAPIClient:
@@ -549,8 +528,8 @@ def get_b2b_router_client() -> B2BRouterAPIClient:
 	Returns:
 		B2BRouterAPIClient instance
 	"""
-	api_key = frappe.conf.get('b2b_router_api_key')
-	base_url = frappe.conf.get('b2b_router_base_url', 'https://api.b2brouter.net/v1/')
+	api_key = frappe.conf.get("b2b_router_api_key")
+	base_url = frappe.conf.get("b2b_router_base_url", "https://api.b2brouter.net/v1/")
 
 	if not api_key:
 		raise Exception("B2B Router API key not configured in site config")
@@ -558,7 +537,7 @@ def get_b2b_router_client() -> B2BRouterAPIClient:
 	return B2BRouterAPIClient(api_key, base_url)
 
 
-def validate_api_connection(api_key: str = None, base_url: str = None) -> Dict[str, Any]:
+def validate_api_connection(api_key: str | None = None, base_url: str | None = None) -> dict[str, Any]:
 	"""
 	Validate B2B Router API connection and credentials.
 
@@ -578,29 +557,23 @@ def validate_api_connection(api_key: str = None, base_url: str = None) -> Dict[s
 		return {
 			"status": "success",
 			"message": "B2B Router API connection successful",
-			"system_status": status
+			"system_status": status,
 		}
 	except Exception as e:
-		return {
-			"status": "error",
-			"message": f"B2B Router API connection failed: {str(e)}"
-		}
+		return {"status": "error", "message": f"B2B Router API connection failed: {e!s}"}
 
 
-def poll_inbox(integration_settings: Dict[str, Any] = None, account_id: str = None) -> Dict[str, Any]:
+def poll_inbox(
+	integration_settings: dict[str, Any] | None = None, account_id: str | None = None
+) -> dict[str, Any]:
 	"""Poll B2B Router inbox for new incoming invoices and return XML content."""
-	api_key = integration_settings.get('api_key')
-	base_url = integration_settings.get('base_url')
-	
+	if not integration_settings:
+		raise Exception("Integration settings not provided")
+
+	api_key = integration_settings.get("api_key")
+
 	if not api_key:
 		raise Exception("API key not found in integration settings")
-	
-	b2b_client = B2BRouterAPIClient(api_key, base_url)
-	
-	# B2B Router inbox polling - placeholder implementation
-	return {
-		"status": "success",
-		"message": "No inbox polling implemented for B2B Router yet",
-		"invoices": []
-	}
 
+	# B2B Router inbox polling - placeholder implementation
+	return {"status": "success", "message": "No inbox polling implemented for B2B Router yet", "invoices": []}

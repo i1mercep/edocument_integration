@@ -25,50 +25,52 @@ class EDocumentIntegrationSettings(Document):
 		edocument_profile: DF.Link | None
 	# end: auto-generated types
 
-	def process_incoming_document(self, xml_bytes: bytes, document_id: str = None):
+	def process_incoming_document(self, xml_bytes: bytes, document_id: str | None = None):
 		# Process incoming document XML and create EDocument
 		try:
 			# Ensure xml_bytes is bytes
 			if not isinstance(xml_bytes, bytes):
 				raise ValueError(f"xml_bytes must be bytes, got {type(xml_bytes)}")
-			
+
 			# Detect profile from XML
 			from edocument.edocument.doctype.edocument.edocument import _detect_profile_from_xml
+
 			profile_name = _detect_profile_from_xml(xml_bytes)
 			if not profile_name:
 				raise ValueError("Could not detect e-document profile from XML")
-			
-			# Get profile document
-			profile_doc = frappe.get_doc("EDocument Profile", profile_name)
-			
+
 			# Create EDocument document first
-			edocument = frappe.get_doc({
-				"doctype": "EDocument",
-				"edocument_profile": profile_name,
-			})
+			edocument = frappe.get_doc(
+				{
+					"doctype": "EDocument",
+					"edocument_profile": profile_name,
+				}
+			)
 			edocument.insert(ignore_permissions=True)
 			frappe.db.commit()
-			
+
 			# Create and attach File document directly
 			filename = f"document_{document_id}.xml"
-			file_doc = frappe.get_doc({
-				"doctype": "File",
-				"file_name": filename,
-				"attached_to_doctype": "EDocument",
-				"attached_to_name": edocument.name,
-				"attached_to_field": "xml_file",  # This should auto-update edocument.xml_file with file_url
-				"is_private": 1,
-				"content": xml_bytes  # Binary content
-			})
+			file_doc = frappe.get_doc(
+				{
+					"doctype": "File",
+					"file_name": filename,
+					"attached_to_doctype": "EDocument",
+					"attached_to_name": edocument.name,
+					"attached_to_field": "xml_file",  # This should auto-update edocument.xml_file with file_url
+					"is_private": 1,
+					"content": xml_bytes,  # Binary content
+				}
+			)
 			file_doc.insert(ignore_permissions=True)
 			frappe.db.commit()
 			# Reload edocument (optional, but ensures in-memory sync)
 			edocument = frappe.get_doc("EDocument", edocument.name)
-			
+
 			# Explicitly set xml_file since auto-update doesn't occur with direct File creation
 			edocument.db_set("xml_file", file_doc.file_url, update_modified=False)
 			frappe.db.commit()
-			
+
 			return {
 				"edocument": edocument.name,
 				"profile": profile_name,
@@ -76,8 +78,8 @@ class EDocumentIntegrationSettings(Document):
 		except Exception as e:
 			frappe.db.rollback()
 			frappe.log_error(
-				f"Failed to process incoming document (document_id: {document_id}): {str(e)}\nTraceback: {frappe.get_traceback()}",
-				"Document Processing Error"
+				f"Failed to process incoming document (document_id: {document_id}): {e!s}\nTraceback: {frappe.get_traceback()}",
+				"Document Processing Error",
 			)
 			raise
 
@@ -86,77 +88,73 @@ class EDocumentIntegrationSettings(Document):
 		# Poll provider inbox for new incoming documents and process them
 		if not self.edocument_profile:
 			frappe.throw(_("EDocument Profile is required"))
-		
+
 		if not self.edocument_integrator:
 			frappe.throw(_("EDocument Integrator is required"))
-		
+
 		# Get integration settings from this document
 		integration_settings = {
-			'api_key': self.api_key,
-			'api_secret': self.api_secret,
-			'base_url': self.base_url,
-			'company': self.company,
-			'company_id': self.company_id,
-			'account_id': self.account_id,
-			'edocument_integrator': self.edocument_integrator,
-			'edocument_profile': self.edocument_profile
+			"api_key": self.api_key,
+			"api_secret": self.api_secret,
+			"base_url": self.base_url,
+			"company": self.company,
+			"company_id": self.company_id,
+			"account_id": self.account_id,
+			"edocument_integrator": self.edocument_integrator,
+			"edocument_profile": self.edocument_profile,
 		}
-		
+
 		# Route to appropriate provider handler to fetch XMLs
-		if self.edocument_integrator == 'Recommand':
+		if self.edocument_integrator == "Recommand":
 			from edocument_integration.recommand_api import poll_inbox
+
 			poll_result = poll_inbox(integration_settings=integration_settings, company_id=self.company_id)
-		elif self.edocument_integrator == 'B2B Router':
+		elif self.edocument_integrator == "B2B Router":
 			from edocument_integration.b2brouter_api import poll_inbox
+
 			poll_result = poll_inbox(integration_settings=integration_settings, company_id=self.company_id)
 		else:
 			frappe.throw(_("Unsupported E-document integrator: {0}").format(self.edocument_integrator))
-		
+
 		# Process each document XML to create EDocument records
-		documents = poll_result.get('invoices', [])
+		documents = poll_result.get("invoices", [])
 		if not documents:
-			return {
-				"status": "success",
-				"message": "No new documents found",
-				"processed": 0
-			}
-		
+			return {"status": "success", "message": "No new documents found", "processed": 0}
+
 		processed = []
 		for document_data in documents:
 			try:
-				xml_bytes = document_data.get('xml_bytes')
-				document_id = document_data.get('document_id')
-				
+				xml_bytes = document_data.get("xml_bytes")
+				document_id = document_data.get("document_id")
+
 				if not xml_bytes:
 					frappe.log_error(
-						f"No xml_bytes found for document {document_id}",
-						"Document Processing Error"
+						f"No xml_bytes found for document {document_id}", "Document Processing Error"
 					)
 					continue
-				
+
 				# Ensure xml_bytes is bytes (it might have been serialized)
 				if isinstance(xml_bytes, str):
-					xml_bytes = xml_bytes.encode('utf-8')
+					xml_bytes = xml_bytes.encode("utf-8")
 				elif not isinstance(xml_bytes, bytes):
 					frappe.log_error(
 						f"Invalid xml_bytes type: {type(xml_bytes)} for document {document_id}",
-						"Document Processing Error"
+						"Document Processing Error",
 					)
 					continue
-				
+
 				# Process document using process_incoming_document method
 				result = self.process_incoming_document(xml_bytes, document_id)
 				processed.append(result)
 			except Exception as e:
 				frappe.log_error(
-					f"Failed to process document {document_data.get('document_id')}: {str(e)}\nTraceback: {frappe.get_traceback()}",
-					"Document Processing Error"
+					f"Failed to process document {document_data.get('document_id')}: {e!s}\nTraceback: {frappe.get_traceback()}",
+					"Document Processing Error",
 				)
-		
+
 		return {
 			"status": "success",
 			"message": f"Processed {len(processed)} document(s)",
 			"processed": len(processed),
-			"documents": processed
+			"documents": processed,
 		}
-
