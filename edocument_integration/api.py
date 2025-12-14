@@ -156,7 +156,8 @@ def webhook(**kwargs):
 			}
 		)
 		edocument.insert(ignore_permissions=True)
-		frappe.db.commit()
+		# Manual commit required: Webhook must persist EDocument before returning response to external service
+		frappe.db.commit()  # nosemgrep
 
 		# Attach XML file
 		filename = f"document_{edocument.name}.xml"
@@ -171,7 +172,8 @@ def webhook(**kwargs):
 			}
 		)
 		file_doc.save(ignore_permissions=True)
-		frappe.db.commit()
+		# Manual commit required: Webhook must persist File attachment before returning response to external service
+		frappe.db.commit()  # nosemgrep
 
 		result = {
 			"edocument": edocument.name,
@@ -189,7 +191,8 @@ def webhook(**kwargs):
 			f"E-Document webhook processing failed: {e!s}\n{frappe.get_traceback()}",
 			"E-Document Webhook Error",
 		)
-		frappe.db.commit()
+		# Manual commit required: Webhook must commit error state before returning error response to external service
+		frappe.db.commit()  # nosemgrep
 		return {"status": "error", "message": "Internal server error"}, 500
 	finally:
 		if request_log:
