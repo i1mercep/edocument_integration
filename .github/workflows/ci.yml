@@ -98,11 +98,15 @@ jobs:
       - name: Install
         working-directory: /home/runner/frappe-bench
         run: |
-          bench get-app edocument $GITHUB_WORKSPACE/../edocument
-          bench get-app edocument_integration $GITHUB_WORKSPACE
+          # Copy edocument app (dependency)
+          cp -r $(dirname $GITHUB_WORKSPACE)/edocument apps/edocument
+          # Copy edocument_integration app
+          cp -r $GITHUB_WORKSPACE apps/edocument_integration
           bench setup requirements --dev
           bench new-site --db-root-password root --admin-password admin test_site
+          # Install edocument first (required dependency)
           bench --site test_site install-app edocument
+          # Install edocument_integration
           bench --site test_site install-app edocument_integration
           bench build
         env:
