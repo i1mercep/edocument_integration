@@ -151,11 +151,10 @@ class RecommandAPIClient:
 					error_text = json.dumps(error_data)
 				except json.JSONDecodeError:
 					error_text = response.text
-				
+
 				error_msg = f"Recommand API error ({response.status_code}): {error_text}"
 				frappe.log_error(
-					f"{error_msg}\nRequest Payload: {json.dumps(payload)}",
-					"Recommand API Error"
+					f"{error_msg}\nRequest Payload: {json.dumps(payload)}", "Recommand API Error"
 				)
 				raise Exception(error_msg)
 
