@@ -145,30 +145,19 @@ class RecommandAPIClient:
 		try:
 			response = self._make_request("POST", endpoint, json=payload)
 
-			# Handle errors - capture response body for debugging
 			if not response.ok:
 				try:
 					error_data = response.json()
-					error_messages = error_data.get("errors", [])
-					error_message = error_data.get("message", "")
-					if error_messages:
-						error_msg = (
-							f"Recommand API error ({response.status_code}): {'; '.join(error_messages)}"
-						)
-					elif error_message:
-						error_msg = f"Recommand API error ({response.status_code}): {error_message}"
-					else:
-						error_msg = f"Recommand API error ({response.status_code}): {response.text}"
-					frappe.log_error(
-						f"{error_msg}\nPayload: {json.dumps(payload, indent=2)}", "Recommand API Error"
-					)
-					raise Exception(error_msg)
+					error_text = json.dumps(error_data)
 				except json.JSONDecodeError:
-					error_msg = f"Recommand API error ({response.status_code}): {response.text}"
-					frappe.log_error(
-						f"{error_msg}\nPayload: {json.dumps(payload, indent=2)}", "Recommand API Error"
-					)
-					raise Exception(error_msg)
+					error_text = response.text
+				
+				error_msg = f"Recommand API error ({response.status_code}): {error_text}"
+				frappe.log_error(
+					f"{error_msg}\nRequest Payload: {json.dumps(payload)}",
+					"Recommand API Error"
+				)
+				raise Exception(error_msg)
 
 			# Parse response
 			result = response.json()
