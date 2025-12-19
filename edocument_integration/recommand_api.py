@@ -138,7 +138,7 @@ class RecommandAPIClient:
 		payload = {
 			"recipient": recipient,  # Required: PEPPOL recipient in "schemeId:value" format
 			"documentType": document_type,  # "xml" for UBL XML
-			"doctypeId": "Invoice",  # PEPPOL document type identifier
+			# "doctypeId": "Invoice",  # PEPPOL document type identifier
 			"document": xml_content_str,  # UBL XML as string
 		}
 
