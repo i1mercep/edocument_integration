@@ -16,22 +16,21 @@ def get_edocument_integration_settings(profile, company=None):
 	if company:
 		filters["company"] = company
 
-	settings = frappe.get_all(
-		"EDocument Integration Settings",
-		filters=filters,
-		fields=[
-			"api_key",
-			"api_secret",
-			"base_url",
-			"edocument_integrator",
-			"company",
-			"account_id",
-			"company_id",
-		],
-	)
+	docs = frappe.get_list("EDocument Integration Settings", filters=filters, limit_page_length=1)
 
-	if settings:
-		return settings[0]
+	if docs:
+		# Get full document to decrypt password field
+		settings_doc = frappe.get_doc("EDocument Integration Settings", docs[0].name)
+		return {
+			"api_key": settings_doc.api_key,
+			"api_secret": settings_doc.get_password("api_secret"),  # Decrypt password field
+			"base_url": settings_doc.base_url,
+			"edocument_integrator": settings_doc.edocument_integrator,
+			"company": settings_doc.company,
+			"account_id": settings_doc.account_id,
+			"company_id": settings_doc.company_id,
+		}
+
 	return None
 
 
