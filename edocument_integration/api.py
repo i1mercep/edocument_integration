@@ -95,11 +95,11 @@ def transmit_edocument(edocument_name):
 			parts.append(f"• Recipient: {transmission_result.get('recipient')}")
 		edocument_doc.add_comment(comment_type="Info", text="\n".join(parts))
 
-		# Set status to Transmission Successful
+		# Set status to Transmission Successful and store reference ID
 		frappe.db.set_value(
 			"EDocument",
 			edocument_name,
-			{"status": "Transmission Successful", "error": None},
+			{"status": "Transmission Successful", "error": None, "reference": transmission_id},
 			update_modified=False,
 		)
 		frappe.db.commit()

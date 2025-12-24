@@ -28,6 +28,21 @@ class EDocumentIntegrationSettings(Document):
 	def process_incoming_document(self, xml_bytes: bytes, document_id: str | None = None):
 		# Process incoming document XML and create EDocument
 		try:
+			# Check for duplicate reference ID
+			if document_id:
+				existing = frappe.db.exists("EDocument", {"reference": document_id})
+				if existing:
+					frappe.log_error(
+						f"Duplicate document skipped: EDocument with reference '{document_id}' already exists ({existing})",
+						"Document Processing - Duplicate Skipped",
+					)
+					return {
+						"skipped": True,
+						"reason": "duplicate",
+						"reference": document_id,
+						"existing": existing,
+					}
+
 			# Ensure xml_bytes is bytes
 			if not isinstance(xml_bytes, bytes):
 				raise ValueError(f"xml_bytes must be bytes, got {type(xml_bytes)}")
@@ -39,17 +54,18 @@ class EDocumentIntegrationSettings(Document):
 			if not profile_name:
 				raise ValueError("Could not detect e-document profile from XML")
 
-			# Create EDocument document first
+			# Create EDocument WITHOUT profile first (to skip validation)
 			edocument = frappe.get_doc(
 				{
 					"doctype": "EDocument",
-					"edocument_profile": profile_name,
+					"reference": document_id,  # Store provider's document ID as reference
+					"direction": "Incoming",  # Polled documents are incoming
 				}
 			)
 			edocument.insert(ignore_permissions=True)
 			frappe.db.commit()
 
-			# Create and attach File document directly
+			# Attach XML file
 			filename = f"document_{document_id}.xml"
 			file_doc = frappe.get_doc(
 				{
@@ -57,23 +73,24 @@ class EDocumentIntegrationSettings(Document):
 					"file_name": filename,
 					"attached_to_doctype": "EDocument",
 					"attached_to_name": edocument.name,
-					"attached_to_field": "xml_file",  # This should auto-update edocument.xml_file with file_url
 					"is_private": 1,
-					"content": xml_bytes,  # Binary content
+					"content": xml_bytes,
 				}
 			)
 			file_doc.insert(ignore_permissions=True)
 			frappe.db.commit()
-			# Reload edocument (optional, but ensures in-memory sync)
-			edocument = frappe.get_doc("EDocument", edocument.name)
 
-			# Explicitly set xml_file since auto-update doesn't occur with direct File creation
-			edocument.db_set("xml_file", file_doc.file_url, update_modified=False)
+			# Now set profile and xml_file to trigger validation
+			edocument = frappe.get_doc("EDocument", edocument.name)
+			edocument.xml_file = file_doc.file_url
+			edocument.edocument_profile = profile_name
+			edocument.save(ignore_permissions=True)
 			frappe.db.commit()
 
 			return {
 				"edocument": edocument.name,
 				"profile": profile_name,
+				"status": edocument.status,
 			}
 		except Exception as e:
 			frappe.db.rollback()
@@ -95,7 +112,7 @@ class EDocumentIntegrationSettings(Document):
 		# Get integration settings from this document
 		integration_settings = {
 			"api_key": self.api_key,
-			"api_secret": self.api_secret,
+			"api_secret": self.get_password("api_secret"),
 			"base_url": self.base_url,
 			"company": self.company,
 			"company_id": self.company_id,
@@ -122,6 +139,7 @@ class EDocumentIntegrationSettings(Document):
 			return {"status": "success", "message": "No new documents found", "processed": 0}
 
 		processed = []
+		skipped = []
 		for document_data in documents:
 			try:
 				xml_bytes = document_data.get("xml_bytes")
@@ -145,16 +163,26 @@ class EDocumentIntegrationSettings(Document):
 
 				# Process document using process_incoming_document method
 				result = self.process_incoming_document(xml_bytes, document_id)
-				processed.append(result)
+				if result.get("skipped"):
+					skipped.append(result)
+				else:
+					processed.append(result)
 			except Exception as e:
 				frappe.log_error(
 					f"Failed to process document {document_data.get('document_id')}: {e!s}\nTraceback: {frappe.get_traceback()}",
 					"Document Processing Error",
 				)
 
+		message_parts = []
+		if processed:
+			message_parts.append(f"Processed {len(processed)} document(s)")
+		if skipped:
+			message_parts.append(f"Skipped {len(skipped)} duplicate(s)")
+
 		return {
 			"status": "success",
-			"message": f"Processed {len(processed)} document(s)",
+			"message": ", ".join(message_parts) if message_parts else "No new documents found",
 			"processed": len(processed),
+			"skipped": len(skipped),
 			"documents": processed,
 		}
