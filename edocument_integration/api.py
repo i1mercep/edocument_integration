@@ -9,6 +9,104 @@ import frappe
 from frappe import _
 
 
+def _validate_edocument_for_transmission(edocument_doc):
+	"""
+	Validate eDocument before transmission.
+
+	Checks that:
+	1. eDocument profile is configured
+	2. XML is validated successfully
+	3. Source document exists and is submitted (docstatus == 1) for outgoing documents
+	4. Invoice ID in XML matches the source document name for outgoing documents
+
+	Args:
+		edocument_doc: EDocument document object
+
+	Raises:
+		frappe.ValidationError: If validation fails
+	"""
+	# Check if profile is configured
+	if not edocument_doc.edocument_profile:
+		frappe.throw(_("No e-document profile configured for this document."))
+
+	# Check if XML is generated and validated
+	if edocument_doc.status != "Validation Successful":
+		frappe.throw(_("Document is not validated. Please validate XML first."))
+
+	# Additional validation for outgoing documents with source documents
+	if not edocument_doc.edocument_source_document or edocument_doc.direction != "Outgoing":
+		return
+
+	# Check that source document is submitted
+	source_docstatus = frappe.db.get_value(
+		edocument_doc.edocument_source_type, edocument_doc.edocument_source_document, "docstatus"
+	)
+	if source_docstatus != 1:
+		frappe.throw(
+			_(
+				"Cannot transmit eDocument: The source document '{0}' is not submitted. "
+				"Please submit the document first."
+			).format(edocument_doc.edocument_source_document)
+		)
+
+	# Get XML content and extract invoice ID
+	xml_bytes = edocument_doc._get_xml_from_attached_files()
+	xml_content = xml_bytes.decode("utf-8") if isinstance(xml_bytes, bytes) else xml_bytes
+
+	try:
+		from lxml import etree as ET
+
+		root = ET.fromstring(xml_content.encode("utf-8") if isinstance(xml_content, str) else xml_content)
+
+		# Extract invoice ID from XML (UBL and CII formats)
+		invoice_id = None
+		namespaces = root.nsmap
+
+		# Try UBL format: cbc:ID
+		cbc_ns = namespaces.get("cbc")
+		if cbc_ns:
+			id_elem = root.find(f".//{{{cbc_ns}}}ID")
+			if id_elem is not None and id_elem.text:
+				invoice_id = id_elem.text.strip()
+
+		# Try CII format: rsm:ExchangedDocument/ram:ID
+		if not invoice_id:
+			ram_ns = namespaces.get("ram")
+			if ram_ns:
+				id_elem = root.find(f".//{{{ram_ns}}}ExchangedDocument/{{{ram_ns}}}ID")
+				if id_elem is not None and id_elem.text:
+					invoice_id = id_elem.text.strip()
+
+		# Validate invoice ID matches source document name
+		if not invoice_id:
+			frappe.throw(
+				_(
+					"Cannot transmit eDocument: Unable to extract invoice ID from XML. "
+					"Please regenerate the eDocument."
+				)
+			)
+
+		if invoice_id != edocument_doc.edocument_source_document:
+			frappe.throw(
+				_(
+					"Cannot transmit eDocument: The invoice ID in XML '{0}' does not match "
+					"the source document name '{1}'. Please regenerate the eDocument."
+				).format(invoice_id, edocument_doc.edocument_source_document)
+			)
+
+	except frappe.ValidationError:
+		# Re-raise our own validation errors
+		raise
+	except Exception as e:
+		frappe.log_error(
+			f"Error validating invoice ID in XML for eDocument {edocument_doc.name}: {e!s}",
+			"EDocument Validation Error",
+		)
+		frappe.throw(
+			_("Cannot transmit eDocument: Error parsing XML. Please check the eDocument and try again.")
+		)
+
+
 @frappe.whitelist()
 def get_edocument_integration_settings(profile, company=None):
 	# Get EDocument Integration Settings for the given profile
@@ -39,12 +137,8 @@ def transmit_edocument(edocument_name):
 	# Transmit E-document using the configured integrator
 	try:
 		edocument_doc = frappe.get_doc("EDocument", edocument_name)
-		if not edocument_doc.edocument_profile:
-			frappe.throw(_("No e-document profile configured for this document."))
 
-		# Check if XML is generated and validated
-		if edocument_doc.status != "Validation Successful":
-			frappe.throw(_("Document is not validated. Please validate XML first."))
+		_validate_edocument_for_transmission(edocument_doc)
 
 		# Get XML content from attached file using EDocument's method
 		xml_bytes = edocument_doc._get_xml_from_attached_files()
@@ -105,6 +199,9 @@ def transmit_edocument(edocument_name):
 		frappe.db.commit()
 
 		return transmission_result
+	except frappe.ValidationError:
+		# Validation errors (e.g., from _validate_source_docstatus) should be re-raised as-is
+		raise
 	except Exception as e:
 		# Set status to Transmission Failed
 		frappe.db.set_value(
