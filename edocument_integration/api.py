@@ -335,6 +335,10 @@ def webhook(**kwargs):
 			}
 		)
 		file_doc.save(ignore_permissions=True)
+
+		# Save EDocument again to trigger field detection (company, etc.) from attached XML
+		edocument.reload()
+		edocument.save(ignore_permissions=True)
 		frappe.db.commit()  # nosemgrep: Webhook must persist before returning
 
 		result = {"edocument": edocument.name, "document_id": document_id}
