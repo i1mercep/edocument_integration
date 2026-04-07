@@ -133,7 +133,7 @@ def get_edocument_integration_settings(profile, company=None):
 
 
 @frappe.whitelist()
-def transmit_edocument(edocument_name):
+def transmit_edocument(edocument_name: str):
 	# Transmit E-document using the configured integrator
 	try:
 		edocument_doc = frappe.get_doc("EDocument", edocument_name)
