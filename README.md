@@ -52,13 +52,13 @@ Configure integration with PEPPOL service providers using the **EDocument Integr
    - **EDocument Integrator**: Choose your service provider:
      - **B2B Router**: For B2B Router integration
      - **Recommand**: For Recommand integration
-    - **Peppyrus**: For Peppyrus integration
+     - **Peppyrus**: For Peppyrus integration
    - **API Configuration**: Enter your API credentials:
-    - **API Key**: Your service provider API key
-    - **API Secret**: Your service provider API secret (Recommand only)
-    - **Base URL**: Your service provider's API base URL. For Peppyrus use `https://api.test.peppyrus.be/v1` for test or `https://api.peppyrus.be/v1` for production.
-    - **Account ID**: Your account identifier for providers that require it, such as B2B Router and Recommand
-    - **Company ID**: Your provider company identifier where required, such as Recommand
+     - **API Key**: Your service provider API key
+     - **API Secret**: Your service provider API secret (Recommand only)
+     - **Base URL**: Your service provider's API base URL. For Peppyrus use `https://api.test.peppyrus.be/v1` for test or `https://api.peppyrus.be/v1` for production.
+     - **Account ID**: Your account identifier for providers that require it, such as B2B Router and Recommand
+     - **Company ID**: Your provider company identifier where required, such as Recommand
 
 ### Peppyrus Setup
 
