@@ -40,10 +40,10 @@ class PeppyrusAPIClient:
 		try:
 			response = self.session.request(method, url, **kwargs)
 			return response
-		except requests.exceptions.RequestException as e:
-			error_msg = f"Peppyrus API request failed: {e!s}"
+		except requests.exceptions.RequestException as exc:
+			error_msg = f"Peppyrus API request failed: {exc!s}"
 			frappe.log_error(error_msg, "Peppyrus API Error")
-			raise Exception(error_msg)
+			raise
 
 	# DOCUMENT TRANSMISSION METHODS
 
@@ -159,6 +159,9 @@ class PeppyrusAPIClient:
 
 
 def get_peppyrus_client(integration_settings: dict[str, Any]) -> PeppyrusAPIClient:
+	if not integration_settings or not isinstance(integration_settings, dict):
+		raise Exception("Peppyrus integration settings must be provided as a dict")
+
 	api_key = integration_settings.get("api_key")
 	base_url = integration_settings.get("base_url", "https://api.peppyrus.be/v1")
 
@@ -169,6 +172,9 @@ def get_peppyrus_client(integration_settings: dict[str, Any]) -> PeppyrusAPIClie
 
 
 def transmit_invoice(xml_content: str, invoice_doc=None, integration_settings=None) -> dict[str, Any]:
+	if not integration_settings or not isinstance(integration_settings, dict):
+		raise Exception("Peppyrus integration settings are required for transmission and must be a dict")
+
 	try:
 		client = get_peppyrus_client(integration_settings)
 
@@ -209,6 +215,9 @@ def validate_peppyrus_connection(
 def poll_inbox(
 	integration_settings: dict[str, Any] | None = None, company_id: str | None = None
 ) -> dict[str, Any]:
+	if not integration_settings or not isinstance(integration_settings, dict):
+		raise Exception("Peppyrus integration settings are required for inbox polling and must be a dict")
+
 	client = get_peppyrus_client(integration_settings)
 
 	team_id = integration_settings.get("account_id")
