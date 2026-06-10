@@ -15,6 +15,13 @@ import requests
 from frappe import _
 
 BASE_URL = "https://api.peppyrus.be/v1"
+TIMEOUT_SECONDS = 30
+
+
+class PeppyrusAPIError(Exception):
+	"""Custom exception for Peppyrus API errors."""
+
+	...
 
 
 class PeppyrusAPIClient:
@@ -38,7 +45,7 @@ class PeppyrusAPIClient:
 		url = f"{self.base_url}{endpoint}"
 
 		try:
-			response = self.session.request(method, url, **kwargs)
+			response = self.session.request(method, url, timeout=TIMEOUT_SECONDS, **kwargs)
 			return response
 		except requests.exceptions.RequestException as exc:
 			error_msg = f"Peppyrus API request failed: {exc!s}"
@@ -78,13 +85,13 @@ class PeppyrusAPIClient:
 				recipient_scheme = customer_endpoint.get("schemeID", "0088")
 				recipient = f"{recipient_scheme}:{recipient_id}"
 			else:
-				raise Exception(
+				raise PeppyrusAPIError(
 					"Recipient EndpointID not found in XML. Please configure electronic address for customer."
 				)
 		except ET.ParseError as e:
-			raise Exception(f"Failed to parse XML to extract recipient: {e!s}")
+			raise PeppyrusAPIError(f"Failed to parse XML to extract recipient: {e!s}")
 		except Exception as e:
-			raise Exception(f"Failed to extract recipient from XML: {e!s}")
+			raise PeppyrusAPIError(f"Failed to extract recipient from XML: {e!s}")
 
 		payload = {
 			"recipient": recipient,
@@ -104,7 +111,7 @@ class PeppyrusAPIClient:
 
 				error_msg = f"Peppyrus API error ({response.status_code}): {error_text}"
 				frappe.log_error(f"{error_msg}\nRequest Payload: {json.dumps(payload)}", "Peppyrus API Error")
-				raise Exception(error_msg)
+				raise PeppyrusAPIError(error_msg)
 
 			result = response.json()
 			document_id = result.get("id", "unknown")
@@ -114,7 +121,7 @@ class PeppyrusAPIClient:
 		except requests.exceptions.RequestException as e:
 			error_msg = f"Peppyrus document transmission failed: {e!s}"
 			frappe.log_error(error_msg, "Peppyrus Transmission Error")
-			raise Exception(error_msg)
+			raise PeppyrusAPIError(error_msg)
 
 	def get_documents(self, team_id: str, limit: int = 50, offset: int = 0) -> dict[str, Any]:
 		endpoint = f"/peppol/{team_id}/documents"
@@ -126,7 +133,7 @@ class PeppyrusAPIClient:
 		except requests.exceptions.RequestException as e:
 			error_msg = f"Peppyrus get documents failed: {e!s}"
 			frappe.log_error(error_msg, "Peppyrus Get Documents Error")
-			raise Exception(error_msg)
+			raise PeppyrusAPIError(error_msg)
 
 	def get_inbox(self, team_id: str, company_id: str | None = None) -> dict[str, Any]:
 		endpoint = f"/peppol/{team_id}/inbox"
@@ -141,7 +148,7 @@ class PeppyrusAPIClient:
 		except requests.exceptions.RequestException as e:
 			error_msg = f"Peppyrus get inbox failed: {e!s}"
 			frappe.log_error(error_msg, "Peppyrus Get Inbox Error")
-			raise Exception(error_msg)
+			raise PeppyrusAPIError(error_msg)
 
 	def get_document_status(self, team_id: str, document_id: str) -> dict[str, Any]:
 		endpoint = f"/peppol/{team_id}/documents/{document_id}"
@@ -152,7 +159,7 @@ class PeppyrusAPIClient:
 		except requests.exceptions.RequestException as e:
 			error_msg = f"Peppyrus get document status failed: {e!s}"
 			frappe.log_error(error_msg, "Peppyrus Document Status Error")
-			raise Exception(error_msg)
+			raise PeppyrusAPIError(error_msg)
 
 
 # HELPER FUNCTIONS
@@ -160,27 +167,29 @@ class PeppyrusAPIClient:
 
 def get_peppyrus_client(integration_settings: dict[str, Any]) -> PeppyrusAPIClient:
 	if not integration_settings or not isinstance(integration_settings, dict):
-		raise Exception("Peppyrus integration settings must be provided as a dict")
+		raise PeppyrusAPIError("Peppyrus integration settings must be provided as a dict")
 
 	api_key = integration_settings.get("api_key")
 	base_url = integration_settings.get("base_url", "https://api.peppyrus.be/v1")
 
 	if not api_key:
-		raise Exception("Peppyrus API key not configured")
+		raise PeppyrusAPIError("Peppyrus API key not configured")
 
 	return PeppyrusAPIClient(api_key, base_url)
 
 
 def transmit_invoice(xml_content: str, invoice_doc=None, integration_settings=None) -> dict[str, Any]:
 	if not integration_settings or not isinstance(integration_settings, dict):
-		raise Exception("Peppyrus integration settings are required for transmission and must be a dict")
+		raise PeppyrusAPIError(
+			"Peppyrus integration settings are required for transmission and must be a dict"
+		)
 
 	try:
 		client = get_peppyrus_client(integration_settings)
 
 		company_id = integration_settings.get("company_id")
 		if not company_id:
-			raise Exception("Company ID not configured in integration settings (company_id field)")
+			raise PeppyrusAPIError("Company ID not configured in integration settings (company_id field)")
 
 		transmission_result = client.send_document(
 			company_id=company_id, xml_content=xml_content, document_type="xml"
@@ -195,7 +204,7 @@ def transmit_invoice(xml_content: str, invoice_doc=None, integration_settings=No
 	except Exception as e:
 		error_msg = f"Peppyrus transmission failed: {e!s}"
 		frappe.log_error(error_msg, "Peppyrus Transmission Error")
-		raise Exception(error_msg)
+		raise PeppyrusAPIError(error_msg)
 
 
 def validate_peppyrus_connection(
@@ -216,17 +225,19 @@ def poll_inbox(
 	integration_settings: dict[str, Any] | None = None, company_id: str | None = None
 ) -> dict[str, Any]:
 	if not integration_settings or not isinstance(integration_settings, dict):
-		raise Exception("Peppyrus integration settings are required for inbox polling and must be a dict")
+		raise PeppyrusAPIError(
+			"Peppyrus integration settings are required for inbox polling and must be a dict"
+		)
 
 	client = get_peppyrus_client(integration_settings)
 
 	team_id = integration_settings.get("account_id")
 	if not team_id:
-		raise Exception("Account ID (team ID) not found in integration settings")
+		raise PeppyrusAPIError("Account ID (team ID) not found in integration settings")
 
 	company_id = company_id or integration_settings.get("company_id")
 	if not company_id:
-		raise Exception("Company ID not found in integration settings")
+		raise PeppyrusAPIError("Company ID not found in integration settings")
 
 	inbox_result = client.get_inbox(team_id, company_id=company_id)
 	documents = inbox_result.get("documents", []) or inbox_result.get("data", []) or []
